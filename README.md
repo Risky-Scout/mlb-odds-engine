@@ -1,51 +1,66 @@
-# MLB Pitcher Strikeout Model
+# MLB Odds Engine
 
-A transparent, reproducible MLB pitcher strikeout modeling pipeline.
+Transparent, reproducible MLB probability and pricing models for pregame and live betting markets.
 
-Main purpose:
-- estimate pitcher strikeout distributions
-- convert distributions into market-line probabilities
-- compare model pricing to sportsbook pricing
-- filter bets through a conservative, quote-confirmed production card
+## What this repository does
 
-Main output:
-outputs/board/YYYY-MM-DD/pregame_conservative_production_card.csv
+This repository is built around a sports-quant workflow:
 
-Supporting outputs:
-- pregame_conservative_production_pool.csv
-- pregame_conservative_production_card_report.md
-- pregame_summary.csv
-- pregame_candidate_bets.csv
-- pregame_line_grid.csv
-- pregame_exact_pmf.csv
+- estimate true outcome distributions
+- convert those distributions into market-line probabilities
+- calibrate market-facing probabilities
+- identify positive expected value bets
+- produce conservative, reproducible betting cards
 
-Daily run:
+## Current status
+
+The current locked baseline is a v1 pregame MLB pitcher strikeout engine.
+
+Current production artifact:
+- outputs/board/YYYY-MM-DD/pregame_conservative_production_card.csv
+
+## Core workflows
+
+### Daily pregame pipeline
 ./run_pregame_pipeline.sh 2026-04-11
 
-Pipeline steps:
-1. pull current MLB pitcher strikeout quotes
-2. build a quote-universe pregame board
-3. score pitcher strikeout PMFs and threshold probabilities
-4. apply the strict EV gate
-5. create a conservative production card with:
-   - near-main-line bets only
-   - cross-book confirmation
-   - one best vendor per exact bet
-   - one best bet per pitcher
+### Full retrain and recalibration pipeline
+./retrain_and_recalibrate.sh 2026-04-11
 
-Expected local inputs:
-- data_rebuild/games.parquet
-- data_rebuild/players.parquet
-- data_rebuild/plate_appearances.parquet
-- data_rebuild/pitcher_k_system.joblib
-- data_rebuild/external/
+## Core project files
 
-Environment:
-- ODDS_API_KEY
-- BDL_API_KEY if required by the board workflow
+- mlb_k_model/
+- run_daily_board.py
+- run_pregame_pipeline.sh
+- retrain_and_recalibrate.sh
+- train_system.py
+- run_quant_audit.py
+- run_model_vs_market_mainline_eval.py
+- fit_mainline_pmf_postcal.py
+- fit_residual_mainline_calibrator.py
 
-Near-term roadmap:
-- add a one-command retrain and recalibration pipeline
-- add a live-board workflow
-- add a sizing and risk layer
-- tighten packaging for GitHub portfolio presentation
+## Validation philosophy
+
+The workflow is evaluated with:
+
+- PA model calibration and discrimination
+- PMF quality metrics
+- strict main-line model-versus-market evaluation
+- EV-gate validation
+- conservative production-card filtering
+
+## Repository structure
+
+- mlb_k_model/ : core modeling code
+- artifacts/v1_baseline/ : preserved benchmark outputs
+- README.md : repo overview
+- METHODOLOGY.md : methodology summary
+- REPO_KEEP_DELETE_PLAN.md : cleanup and organization plan
+
+## Current development priority
+
+Build the live and in-play MLB pitcher strikeout workflow on the live-inplay-pitcher-strikeouts branch without destabilizing the locked pregame baseline.
+
+## Long-term goal
+
+Extend the same architecture across additional MLB betting markets while preserving transparency, reproducibility, and calibration discipline.
