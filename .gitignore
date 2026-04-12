@@ -5,3 +5,8 @@ outputs/
 *.bak_before_*
 archive/
 .DS_Store
+data/
+data_2425/
+backfill_dense_primary_k_market.py
+backfill_dense_primary_k_market_preserve.py
+backfill_dense_primary_k_market_preserve_v2.py
