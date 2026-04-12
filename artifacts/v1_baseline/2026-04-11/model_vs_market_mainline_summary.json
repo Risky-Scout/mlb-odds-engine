@@ -1,0 +1,20 @@
+{
+  "segment": "overall",
+  "rows": 173,
+  "model_log_loss": 0.5310672432337014,
+  "market_log_loss": 0.6956350120384323,
+  "delta_log_loss_market_minus_model": 0.1645677688047309,
+  "model_brier": 0.17763052118322095,
+  "market_brier": 0.25121805643074085,
+  "delta_brier_market_minus_model": 0.0735875352475199,
+  "mean_model_over_prob": 0.494040740581373,
+  "mean_market_over_prob": 0.49494291503930415,
+  "mean_abs_market_dist_from_50": 0.04096890627182409,
+  "mean_best_ev": 0.26263162121347067,
+  "pct_best_ev_pos": 0.8497109826589595,
+  "pct_best_ev_gt_1pct": 0.8439306358381503,
+  "pct_best_ev_gt_2pct": 0.838150289017341,
+  "n_pos_ev_rows": 147,
+  "pos_ev_hit_rate": 0.7755102040816326,
+  "pos_ev_mean_ev": 0.3158202683902391
+}

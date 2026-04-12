@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+data_rebuild/
+outputs/
+*.bak_before_*
+archive/
+.DS_Store
