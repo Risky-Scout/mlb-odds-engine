@@ -2,17 +2,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pandas as pd
+from pandas.errors import EmptyDataError
 
 
 def read_csv_safe(path: Path) -> pd.DataFrame:
-    if not path.exists() or path.stat().st_size == 0:
+    if not path.exists():
         return pd.DataFrame()
-    return pd.read_csv(path)
+    try:
+        if path.stat().st_size <= 1:
+            return pd.DataFrame()
+        return pd.read_csv(path)
+    except EmptyDataError:
+        return pd.DataFrame()
 
 
 def frame_to_records(df: pd.DataFrame) -> list[dict]:
@@ -35,23 +42,12 @@ def main() -> None:
     parser.add_argument("--system-path", default="data_rebuild/pitcher_k_system.joblib")
     parser.add_argument("--out-dir", default="outputs/board")
     parser.add_argument("--predictions-dir", default="Predictions")
-    args = parser.parse_args()
-
-    subprocess.run(
-        [
-            sys.executable,
-            "run_daily_board.py",
-            "--date",
-            args.date,
-            "--data-dir",
-            args.data_dir,
-            "--system-path",
-            args.system_path,
-            "--out-dir",
-            args.out_dir,
-        ],
-        check=True,
+    parser.add_argument(
+        "--refresh-board",
+        action="store_true",
+        help="Force a fresh run of run_daily_board.py even if live board files already exist.",
     )
+    args = parser.parse_args()
 
     board_dir = Path(args.out_dir) / args.date
     live_summary_path = board_dir / "live_summary.csv"
@@ -65,9 +61,41 @@ def main() -> None:
         "live_line_grid": live_line_grid_path,
         "live_exact_pmf": live_exact_pmf_path,
     }
-    missing = [name for name, path in required.items() if not path.exists()]
-    if missing:
-        raise SystemExit(f"Missing expected live board outputs: {missing}")
+
+    missing_before = [name for name, path in required.items() if not path.exists()]
+
+    if args.refresh_board or missing_before:
+        missing_env = [name for name in ["BDL_API_KEY", "ODDS_API_KEY"] if not os.environ.get(name, "").strip()]
+        if missing_env:
+            raise SystemExit(
+                "Cannot build live board because required environment variables are missing: "
+                + ", ".join(missing_env)
+                + ". Either export them and rerun, or rerun without --refresh-board after live board files already exist."
+            )
+
+        subprocess.run(
+            [
+                sys.executable,
+                "run_daily_board.py",
+                "--date",
+                args.date,
+                "--data-dir",
+                args.data_dir,
+                "--system-path",
+                args.system_path,
+                "--out-dir",
+                args.out_dir,
+            ],
+            check=True,
+        )
+
+    missing_after = [name for name, path in required.items() if not path.exists()]
+    if missing_after:
+        raise SystemExit(
+            "Live board outputs are still missing after pipeline setup: "
+            + ", ".join(missing_after)
+            + f". Expected under {board_dir}"
+        )
 
     summary = read_csv_safe(live_summary_path)
     candidates = read_csv_safe(live_candidates_path)
