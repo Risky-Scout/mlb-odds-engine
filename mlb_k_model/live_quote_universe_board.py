@@ -269,12 +269,15 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
             })
 
         for lv in sorted(qg["line_value"].dropna().unique().tolist()):
-            p_over = _threshold_over_prob(pmf, lv)
-            p_over = _apply_threshold_cal(system, p_over)
+            raw_p_over = _threshold_over_prob(pmf, lv)
+            calibrated_p_over = _apply_threshold_cal(system, raw_p_over)
+            p_over = raw_p_over
             p_under = 1.0 - p_over
             line_rows.append({
                 "line_value": float(lv),
                 "p_over": float(p_over),
+                "p_over_raw": float(raw_p_over),
+                "p_over_calibrated": float(calibrated_p_over),
                 "p_under": float(p_under),
                 "p_push": 0.0,
                 "fair_over_american": float(_prob_to_american(p_over)),
@@ -312,8 +315,9 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
 
         for r in qg.itertuples(index=False):
             market_over, market_under = _no_vig_probs(r.over_odds, r.under_odds)
-            model_over = _threshold_over_prob(pmf, r.line_value)
-            model_over = _apply_threshold_cal(system, model_over)
+            raw_model_over = _threshold_over_prob(pmf, r.line_value)
+            calibrated_model_over = _apply_threshold_cal(system, raw_model_over)
+            model_over = raw_model_over
             model_under = 1.0 - model_over
 
             over_ev = _ev_from_american(model_over, r.over_odds)
@@ -335,6 +339,8 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
                 "over_ev": float(over_ev),
                 "under_ev": float(under_ev),
                 "model_over_prob": float(model_over),
+                "raw_model_over_prob": float(raw_model_over),
+                "calibrated_model_over_prob": float(calibrated_model_over),
                 "market_over_prob": float(market_over),
                 "model_under_prob": float(model_under),
                 "market_under_prob": float(market_under),
