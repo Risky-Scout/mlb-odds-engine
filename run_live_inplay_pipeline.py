@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, date
 import os
 from pathlib import Path
 
@@ -11,11 +12,25 @@ from mlb_k_model.current_props import fetch_current_pitcher_strikeouts_snapshot
 from mlb_k_model.live_quote_universe_board import build_quote_universe_live_board
 
 
+def _json_safe_value(x):
+    if x is None:
+        return None
+    if isinstance(x, pd.Timestamp):
+        return x.isoformat()
+    if isinstance(x, (datetime, date)):
+        return x.isoformat()
+    if pd.isna(x):
+        return None
+    return x
+
+
 def frame_to_records(df: pd.DataFrame) -> list[dict]:
     if df is None or df.empty:
         return []
     out = df.copy()
-    out = out.where(pd.notnull(out), None)
+    out = out.astype(object).where(pd.notnull(out), None)
+    for c in out.columns:
+        out[c] = out[c].map(_json_safe_value)
     return out.to_dict(orient="records")
 
 
