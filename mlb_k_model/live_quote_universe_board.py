@@ -280,6 +280,8 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
 
         pmf = condition_pmf_with_live_state(pmf, live_state)
 
+        is_actionable_live = int(getattr(live_state, "pitcher_active_flag", 0)) == 1
+
         ks = np.arange(len(pmf), dtype=float)
         k_mean = float(np.sum(ks * pmf))
         cdf = np.cumsum(pmf)
@@ -361,6 +363,9 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
             best_ev = max(over_ev, under_ev)
             conf_dist = abs(model_over - 0.5)
             passes = (best_ev >= STRICT_EV_GATE_MIN_EDGE) and (conf_dist >= STRICT_EV_GATE_MIN_CONF_DIST)
+
+            if not is_actionable_live:
+                continue
 
             bet_rows.append({
                 "mode": "live",
