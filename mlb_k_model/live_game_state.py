@@ -114,7 +114,10 @@ def _extract_pitchers_from_feed(feed: dict, quote_game_id: int, mlb_game_pk: int
                 continue
 
             pitching = ((rec.get("stats", {}) or {}).get("pitching", {}) or {})
-            has_pitching = any(k in pitching for k in ["strikeOuts", "strikeouts", "inningsPitched", "battersFaced", "numberOfPitches"])
+            has_pitching = any(
+                k in pitching
+                for k in ["strikeOuts", "strikeouts", "inningsPitched", "battersFaced", "numberOfPitches"]
+            )
             if not has_pitching:
                 continue
 
@@ -150,58 +153,64 @@ def build_live_state_lookup_from_quotes(quotes: pd.DataFrame, target_date: str) 
         return {}
 
     q = quotes.copy()
-    for c in ["home_team", "away_team", "player_name"]:
-        if c in q.columns:
-            q[c] = q[c].astype(str)
-
     q["player_name_norm"] = q["player_name"].map(_norm)
-    if "home_team" in q.columns:
-        q["home_team_norm"] = q["home_team"].map(_norm)
-    else:
-        q["home_team_norm"] = ""
-    if "away_team" in q.columns:
-        q["away_team_norm"] = q["away_team"].map(_norm)
-    else:
-        q["away_team_norm"] = ""
+    q["home_team_norm"] = q.get("home_team", "").map(_norm) if "home_team" in q.columns else ""
+    q["away_team_norm"] = q.get("away_team", "").map(_norm) if "away_team" in q.columns else ""
+    q["commence_time"] = pd.to_datetime(q.get("commence_time"), utc=True, errors="coerce")
 
-    sched = fetch_schedule_for_date(target_date)
-    sched_df = pd.DataFrame(sched)
-    if sched_df.empty:
+    sched = pd.DataFrame(fetch_schedule_for_date(target_date))
+    if sched.empty:
         return {}
 
-    sched_df["home_team_norm"] = sched_df["home_team"].map(_norm)
-    sched_df["away_team_norm"] = sched_df["away_team"].map(_norm)
+    sched["home_team_norm"] = sched["home_team"].map(_norm)
+    sched["away_team_norm"] = sched["away_team"].map(_norm)
+    sched["gameDate"] = pd.to_datetime(sched["gameDate"], utc=True, errors="coerce")
 
+    feed_cache: Dict[int, dict | None] = {}
     out: Dict[Tuple[int, str], LivePitcherState] = {}
 
-    unique_games = q[["game_id", "home_team_norm", "away_team_norm"]].drop_duplicates()
-
-    for row in unique_games.itertuples(index=False):
-        candidates = sched_df.loc[
-            (sched_df["home_team_norm"] == row.home_team_norm) &
-            (sched_df["away_team_norm"] == row.away_team_norm)
-        ].copy()
-
-        if candidates.empty:
+    for r in q.itertuples(index=False):
+        key = (int(r.game_id), str(r.player_name_norm))
+        if key in out:
             continue
 
-        mlb_game_pk = candidates.iloc[0]["gamePk"]
+        candidates = sched.copy()
 
-        try:
-            feed = fetch_live_feed(int(mlb_game_pk))
-        except Exception:
-            continue
+        # Prefer exact team match when available
+        if getattr(r, "home_team_norm", "") and getattr(r, "away_team_norm", ""):
+            team_match = candidates.loc[
+                (candidates["home_team_norm"] == r.home_team_norm) &
+                (candidates["away_team_norm"] == r.away_team_norm)
+            ].copy()
+            if not team_match.empty:
+                candidates = team_match
 
-        pitcher_states = _extract_pitchers_from_feed(feed, quote_game_id=int(row.game_id), mlb_game_pk=int(mlb_game_pk))
-        if not pitcher_states:
-            continue
+        # Then rank by closest game time to quoted commence time
+        if pd.notna(getattr(r, "commence_time", pd.NaT)):
+            candidates["time_diff"] = (candidates["gameDate"] - r.commence_time).abs()
+            candidates = candidates.sort_values("time_diff")
 
-        qg = q.loc[q["game_id"].eq(row.game_id)].copy()
-        for r in qg.itertuples(index=False):
-            key = (int(r.game_id), str(r.player_name_norm))
+        found = None
+        for cand in candidates.itertuples(index=False):
+            game_pk = int(cand.gamePk)
+            if game_pk not in feed_cache:
+                try:
+                    feed_cache[game_pk] = fetch_live_feed(game_pk)
+                except Exception:
+                    feed_cache[game_pk] = None
+
+            feed = feed_cache[game_pk]
+            if feed is None:
+                continue
+
+            pitcher_states = _extract_pitchers_from_feed(feed, quote_game_id=int(r.game_id), mlb_game_pk=game_pk)
             st = pitcher_states.get(str(r.player_name_norm))
             if st is not None:
-                out[key] = st
+                found = st
+                break
+
+        if found is not None:
+            out[key] = found
 
     return out
 
