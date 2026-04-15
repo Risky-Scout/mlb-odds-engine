@@ -175,29 +175,48 @@ def main() -> None:
     api_root = Path(args.predictions_dir) / "API" / "mlb" / "pitcher_strikeouts" / "live"
     date_root = Path(args.predictions_dir) / "mlb" / "pitcher_strikeouts" / "live" / args.date
 
+    active_keys = ["game_id", "pitcher_id", "pitcher_name"]
+    active_summary = live.summary.copy()
+    if not active_summary.empty and "pitcher_active_flag" in active_summary.columns:
+        active_summary = active_summary.loc[
+            active_summary["pitcher_active_flag"].fillna(0).astype(int).eq(1)
+        ].copy()
+
+    active_line_grid = live.line_grid.copy()
+    if not active_line_grid.empty and not active_summary.empty:
+        active_line_grid = active_line_grid.merge(
+            active_summary[active_keys], on=active_keys, how="inner"
+        )
+
+    active_exact_pmf = live.exact_pmf.copy()
+    if not active_exact_pmf.empty and not active_summary.empty:
+        active_exact_pmf = active_exact_pmf.merge(
+            active_summary[active_keys], on=active_keys, how="inner"
+        )
+
     latest_payload = {
         "model": "mlb-odds-engine",
         "market": "pitcher_strikeouts",
         "mode": "live",
         "date": args.date,
         "generated_at_utc": generated_at,
-        "summary": frame_to_records(live.summary),
+        "summary": frame_to_records(active_summary),
         "live_card": frame_to_records(live_card),
         "live_production_card": frame_to_records(production_card),
         "live_watchlist": frame_to_records(watchlist),
         "candidate_bets": frame_to_records(live.candidate_bets),
-        "line_grid": frame_to_records(live.line_grid),
-        "exact_pmf": frame_to_records(live.exact_pmf),
+        "line_grid": frame_to_records(active_line_grid),
+        "exact_pmf": frame_to_records(active_exact_pmf),
     }
 
     write_json(api_root / "latest.json", latest_payload)
-    write_json(date_root / "summary.json", frame_to_records(live.summary))
+    write_json(date_root / "summary.json", frame_to_records(active_summary))
     write_json(date_root / "live_card.json", frame_to_records(live_card))
     write_json(date_root / "live_production_card.json", frame_to_records(production_card))
     write_json(date_root / "live_watchlist.json", frame_to_records(watchlist))
     write_json(date_root / "candidate_bets.json", frame_to_records(live.candidate_bets))
-    write_json(date_root / "line_grid.json", frame_to_records(live.line_grid))
-    write_json(date_root / "exact_pmf.json", frame_to_records(live.exact_pmf))
+    write_json(date_root / "line_grid.json", frame_to_records(active_line_grid))
+    write_json(date_root / "exact_pmf.json", frame_to_records(active_exact_pmf))
 
     print("WROTE:")
     print(board_dir / "live_summary.csv")
