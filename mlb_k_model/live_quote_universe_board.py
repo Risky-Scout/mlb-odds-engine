@@ -12,7 +12,7 @@ import pandas as pd
 from mlb_k_model.data_pipeline import FeatureBuilder
 from mlb_k_model.external_data import merge_external_features
 from mlb_k_model.system import StrikeoutBettingSystem
-from mlb_k_model.live_game_state import build_live_state_lookup, condition_pmf_with_live_state
+from mlb_k_model.live_game_state import build_live_state_lookup_from_quotes, condition_pmf_with_live_state
 from train_system import build_lineup_lookup
 
 
@@ -226,13 +226,9 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
 
     quotes["player_name_norm"] = quotes["player_name"].map(_norm)
 
-    live_state_lookup = build_live_state_lookup(
-        game_ids=quotes["game_id"].dropna().astype(int).unique().tolist(),
-        pitcher_ids=[
-            int(x) for x in pd.concat(
-                [quotes["player_id"].dropna(), start_states["pitcher_id"].dropna()]
-            ).astype(int).unique().tolist()
-        ],
+    live_state_lookup = build_live_state_lookup_from_quotes(
+        quotes=quotes,
+        target_date=target_date,
     )
 
     for (game_id, player_name_norm), qg in quotes.groupby(["game_id", "player_name_norm"], dropna=False):
@@ -260,11 +256,7 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
         pmf = system.true_model.predict_pmf(state=state, future_lineup=future_lineup)
         pmf = _apply_saved_pmf_postcal(system, pmf)
 
-        live_state = None
-        if pd.notna(player_id):
-            live_state = live_state_lookup.get((int(game_id), int(player_id)))
-        if live_state is None:
-            live_state = live_state_lookup.get((int(game_id), int(state_rec["pitcher_id"])))
+        live_state = live_state_lookup.get((int(game_id), str(player_name_norm)))
 
         pmf = condition_pmf_with_live_state(pmf, live_state)
 

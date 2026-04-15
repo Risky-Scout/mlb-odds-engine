@@ -1,25 +1,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Tuple
 import math
+import re
+import unicodedata
 
 import numpy as np
+import pandas as pd
 import requests
 
 
-STATSAPI_LIVE_URL = "https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live"
+SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
+LIVE_FEED_URL = "https://statsapi.mlb.com/api/v1/game/{game_pk}/feed/live"
 
 
 @dataclass
 class LivePitcherState:
-    game_id: int
-    pitcher_id: int
+    quote_game_id: int
+    pitcher_name_norm: str
     strikeouts_so_far: int
     batters_faced_so_far: int
     pitches_thrown_so_far: int
     innings_completed: float
     pitcher_active_flag: int
+    mlb_game_pk: int | None = None
+
+
+def _norm(s) -> str:
+    if s is None:
+        return ""
+    s = str(s)
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    s = s.lower().strip()
+    s = re.sub(r"[^\w\s]", "", s)
+    s = re.sub(r"\s+", " ", s)
+    return s
 
 
 def _safe_int(x, default: int = 0) -> int:
@@ -55,76 +71,137 @@ def _parse_innings_pitched(x) -> float:
     return whole_i + outs / 3.0
 
 
+def fetch_schedule_for_date(target_date: str, timeout: int = 20) -> list[dict]:
+    r = requests.get(
+        SCHEDULE_URL,
+        params={"sportId": 1, "date": str(target_date)},
+        timeout=timeout,
+    )
+    r.raise_for_status()
+    payload = r.json()
+
+    out = []
+    for d in payload.get("dates", []) or []:
+        for g in d.get("games", []) or []:
+            out.append({
+                "gamePk": g.get("gamePk"),
+                "gameDate": g.get("gameDate"),
+                "home_team": ((g.get("teams", {}) or {}).get("home", {}) or {}).get("team", {}).get("name"),
+                "away_team": ((g.get("teams", {}) or {}).get("away", {}) or {}).get("team", {}).get("name"),
+            })
+    return out
+
+
 def fetch_live_feed(game_pk: int, timeout: int = 20) -> dict:
-    url = STATSAPI_LIVE_URL.format(game_pk=int(game_pk))
-    r = requests.get(url, timeout=timeout)
+    r = requests.get(LIVE_FEED_URL.format(game_pk=int(game_pk)), timeout=timeout)
     r.raise_for_status()
     return r.json()
 
 
-def _extract_pitcher_state(feed: dict, game_id: int, pitcher_id: int) -> LivePitcherState | None:
-    pitcher_key = f"ID{int(pitcher_id)}"
+def _extract_pitchers_from_feed(feed: dict, quote_game_id: int, mlb_game_pk: int) -> Dict[str, LivePitcherState]:
+    out: Dict[str, LivePitcherState] = {}
 
-    teams = (((feed or {}).get("liveData", {}) or {}).get("boxscore", {}) or {}).get("teams", {}) or {}
-    player_rec = None
-    for side in ("home", "away"):
-        players = ((teams.get(side, {}) or {}).get("players", {}) or {})
-        if pitcher_key in players:
-            player_rec = players[pitcher_key]
-            break
-
-    if player_rec is None:
-        return None
-
-    pitching = ((player_rec.get("stats", {}) or {}).get("pitching", {}) or {})
-
-    strikeouts_so_far = _safe_int(
-        pitching.get("strikeOuts", pitching.get("strikeouts", 0)),
-        0,
-    )
-    batters_faced_so_far = _safe_int(
-        pitching.get("battersFaced", pitching.get("battersfaced", 0)),
-        0,
-    )
-    pitches_thrown_so_far = _safe_int(
-        pitching.get("numberOfPitches", pitching.get("pitchesThrown", pitching.get("numberofpitches", 0))),
-        0,
-    )
-    innings_completed = _parse_innings_pitched(
-        pitching.get("inningsPitched", pitching.get("inningspitched", 0))
-    )
-
+    teams = ((((feed or {}).get("liveData", {}) or {}).get("boxscore", {}) or {}).get("teams", {}) or {})
     defense_pitcher = ((((feed or {}).get("liveData", {}) or {}).get("linescore", {}) or {}).get("defense", {}) or {}).get("pitcher", {}) or {}
     active_pitcher_id = defense_pitcher.get("id")
-    pitcher_active_flag = int(_safe_int(active_pitcher_id, -1) == int(pitcher_id))
 
-    return LivePitcherState(
-        game_id=int(game_id),
-        pitcher_id=int(pitcher_id),
-        strikeouts_so_far=strikeouts_so_far,
-        batters_faced_so_far=batters_faced_so_far,
-        pitches_thrown_so_far=pitches_thrown_so_far,
-        innings_completed=float(innings_completed),
-        pitcher_active_flag=pitcher_active_flag,
-    )
+    for side in ("home", "away"):
+        players = ((teams.get(side, {}) or {}).get("players", {}) or {})
+        for _, rec in players.items():
+            person = (rec.get("person", {}) or {})
+            full_name = person.get("fullName")
+            if not full_name:
+                continue
+
+            pitching = ((rec.get("stats", {}) or {}).get("pitching", {}) or {})
+            has_pitching = any(k in pitching for k in ["strikeOuts", "strikeouts", "inningsPitched", "battersFaced", "numberOfPitches"])
+            if not has_pitching:
+                continue
+
+            strikeouts_so_far = _safe_int(pitching.get("strikeOuts", pitching.get("strikeouts", 0)), 0)
+            batters_faced_so_far = _safe_int(pitching.get("battersFaced", pitching.get("battersfaced", 0)), 0)
+            pitches_thrown_so_far = _safe_int(
+                pitching.get("numberOfPitches", pitching.get("pitchesThrown", pitching.get("numberofpitches", 0))),
+                0,
+            )
+            innings_completed = _parse_innings_pitched(
+                pitching.get("inningsPitched", pitching.get("inningspitched", 0))
+            )
+
+            pid = person.get("id")
+            pitcher_active_flag = int(_safe_int(pid, -1) == _safe_int(active_pitcher_id, -2))
+
+            out[_norm(full_name)] = LivePitcherState(
+                quote_game_id=int(quote_game_id),
+                pitcher_name_norm=_norm(full_name),
+                strikeouts_so_far=strikeouts_so_far,
+                batters_faced_so_far=batters_faced_so_far,
+                pitches_thrown_so_far=pitches_thrown_so_far,
+                innings_completed=float(innings_completed),
+                pitcher_active_flag=pitcher_active_flag,
+                mlb_game_pk=int(mlb_game_pk),
+            )
+
+    return out
 
 
-def build_live_state_lookup(game_ids: Iterable[int], pitcher_ids: Iterable[int]) -> Dict[Tuple[int, int], LivePitcherState]:
-    game_ids = sorted({int(g) for g in game_ids if g is not None})
-    pitcher_ids = {int(p) for p in pitcher_ids if p is not None}
+def build_live_state_lookup_from_quotes(quotes: pd.DataFrame, target_date: str) -> Dict[Tuple[int, str], LivePitcherState]:
+    if quotes is None or quotes.empty:
+        return {}
 
-    out: Dict[Tuple[int, int], LivePitcherState] = {}
+    q = quotes.copy()
+    for c in ["home_team", "away_team", "player_name"]:
+        if c in q.columns:
+            q[c] = q[c].astype(str)
 
-    for game_id in game_ids:
+    q["player_name_norm"] = q["player_name"].map(_norm)
+    if "home_team" in q.columns:
+        q["home_team_norm"] = q["home_team"].map(_norm)
+    else:
+        q["home_team_norm"] = ""
+    if "away_team" in q.columns:
+        q["away_team_norm"] = q["away_team"].map(_norm)
+    else:
+        q["away_team_norm"] = ""
+
+    sched = fetch_schedule_for_date(target_date)
+    sched_df = pd.DataFrame(sched)
+    if sched_df.empty:
+        return {}
+
+    sched_df["home_team_norm"] = sched_df["home_team"].map(_norm)
+    sched_df["away_team_norm"] = sched_df["away_team"].map(_norm)
+
+    out: Dict[Tuple[int, str], LivePitcherState] = {}
+
+    unique_games = q[["game_id", "home_team_norm", "away_team_norm"]].drop_duplicates()
+
+    for row in unique_games.itertuples(index=False):
+        candidates = sched_df.loc[
+            (sched_df["home_team_norm"] == row.home_team_norm) &
+            (sched_df["away_team_norm"] == row.away_team_norm)
+        ].copy()
+
+        if candidates.empty:
+            continue
+
+        mlb_game_pk = candidates.iloc[0]["gamePk"]
+
         try:
-            feed = fetch_live_feed(game_id)
+            feed = fetch_live_feed(int(mlb_game_pk))
         except Exception:
             continue
 
-        for pitcher_id in pitcher_ids:
-            st = _extract_pitcher_state(feed, game_id=game_id, pitcher_id=pitcher_id)
+        pitcher_states = _extract_pitchers_from_feed(feed, quote_game_id=int(row.game_id), mlb_game_pk=int(mlb_game_pk))
+        if not pitcher_states:
+            continue
+
+        qg = q.loc[q["game_id"].eq(row.game_id)].copy()
+        for r in qg.itertuples(index=False):
+            key = (int(r.game_id), str(r.player_name_norm))
+            st = pitcher_states.get(str(r.player_name_norm))
             if st is not None:
-                out[(int(game_id), int(pitcher_id))] = st
+                out[key] = st
 
     return out
 
@@ -196,7 +273,6 @@ def condition_pmf_with_live_state(
     progress = float(np.mean(progress_parts)) if progress_parts else 0.0
     progress = float(np.clip(progress, 0.0, 0.98))
     remaining_share = 1.0 - progress
-
     target_add_mean = base_add_mean * remaining_share
 
     if target_add_mean <= 1e-8:
