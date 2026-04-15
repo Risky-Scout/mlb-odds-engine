@@ -12,7 +12,7 @@ import requests
 
 
 SCHEDULE_URL = "https://statsapi.mlb.com/api/v1/schedule"
-LIVE_FEED_URL = "https://statsapi.mlb.com/api/v1/game/{game_pk}/feed/live"
+LIVE_FEED_URL = "https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live"
 
 
 @dataclass
