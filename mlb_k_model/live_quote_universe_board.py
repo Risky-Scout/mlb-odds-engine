@@ -229,6 +229,7 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
     live_state_lookup = build_live_state_lookup_from_quotes(
         quotes=quotes,
         target_date=target_date,
+        data_dir=data_dir,
     )
 
     for (game_id, player_name_norm), qg in quotes.groupby(["game_id", "player_name_norm"], dropna=False):
