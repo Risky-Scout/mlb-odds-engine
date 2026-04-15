@@ -130,17 +130,18 @@ def build_live_state_lookup_from_quotes(quotes: pd.DataFrame, target_date: str, 
     q = q.dropna(subset=["mlb_game_pk", "snapshot_ts", "player_name_norm"]).copy()
     q["mlb_game_pk"] = q["mlb_game_pk"].astype(int)
 
-    # Use the latest quote timestamp per (game_id, pitcher_name) and match to the latest prior state snapshot
-    quote_groups = (
-        q.groupby(["game_id", "mlb_game_pk", "player_name_norm"], as_index=False)["snapshot_ts"]
-        .max()
+    # Match state at the quote-row timestamp level, not once per pitcher
+    quote_rows = (
+        q[["game_id", "mlb_game_pk", "player_name_norm", "snapshot_ts"]]
+        .drop_duplicates()
         .rename(columns={"snapshot_ts": "quote_ts"})
+        .copy()
     )
 
-    out: Dict[Tuple[int, str], LivePitcherState] = {}
+    out: Dict[Tuple[int, str, str], LivePitcherState] = {}
     tolerance = pd.Timedelta(seconds=120)
 
-    for r in quote_groups.itertuples(index=False):
+    for r in quote_rows.itertuples(index=False):
         cand = state_df.loc[
             (state_df["mlb_game_pk"] == int(r.mlb_game_pk)) &
             (state_df["pitcher_name_norm"] == str(r.player_name_norm)) &
@@ -153,7 +154,7 @@ def build_live_state_lookup_from_quotes(quotes: pd.DataFrame, target_date: str, 
         cand = cand.sort_values("capture_run_ts")
         row = cand.iloc[-1]
 
-        out[(int(r.game_id), str(r.player_name_norm))] = LivePitcherState(
+        out[(int(r.game_id), str(r.player_name_norm), pd.Timestamp(r.quote_ts).isoformat())] = LivePitcherState(
             quote_game_id=int(r.game_id),
             pitcher_name_norm=str(r.player_name_norm),
             strikeouts_so_far=int(row["strikeouts_so_far"]),

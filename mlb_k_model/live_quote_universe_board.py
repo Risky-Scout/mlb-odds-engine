@@ -233,6 +233,11 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
     )
 
     for (game_id, player_name_norm), qg in quotes.groupby(["game_id", "player_name_norm"], dropna=False):
+        qg = qg.sort_values("snapshot_ts").copy()
+        latest_snapshot_ts = qg["snapshot_ts"].max()
+        fresh_cut = latest_snapshot_ts - pd.Timedelta(minutes=2)
+        qg = qg.loc[qg["snapshot_ts"] >= fresh_cut].copy()
+
         player_name = qg["player_name"].dropna().iloc[0] if qg["player_name"].notna().any() else None
         player_id = qg["player_id"].dropna().iloc[0] if qg["player_id"].notna().any() else np.nan
 
@@ -257,7 +262,9 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
         pmf = system.true_model.predict_pmf(state=state, future_lineup=future_lineup)
         pmf = _apply_saved_pmf_postcal(system, pmf)
 
-        live_state = live_state_lookup.get((int(game_id), str(player_name_norm)))
+        live_state = live_state_lookup.get(
+            (int(game_id), str(player_name_norm), pd.Timestamp(latest_snapshot_ts).isoformat())
+        )
 
         pmf = condition_pmf_with_live_state(pmf, live_state)
 
