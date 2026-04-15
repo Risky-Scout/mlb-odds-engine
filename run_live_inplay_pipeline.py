@@ -183,6 +183,8 @@ def main() -> None:
         "generated_at_utc": generated_at,
         "summary": frame_to_records(live.summary),
         "live_card": frame_to_records(live_card),
+        "live_production_card": frame_to_records(production_card),
+        "live_watchlist": frame_to_records(watchlist),
         "candidate_bets": frame_to_records(live.candidate_bets),
         "line_grid": frame_to_records(live.line_grid),
         "exact_pmf": frame_to_records(live.exact_pmf),
@@ -191,6 +193,8 @@ def main() -> None:
     write_json(api_root / "latest.json", latest_payload)
     write_json(date_root / "summary.json", frame_to_records(live.summary))
     write_json(date_root / "live_card.json", frame_to_records(live_card))
+    write_json(date_root / "live_production_card.json", frame_to_records(production_card))
+    write_json(date_root / "live_watchlist.json", frame_to_records(watchlist))
     write_json(date_root / "candidate_bets.json", frame_to_records(live.candidate_bets))
     write_json(date_root / "line_grid.json", frame_to_records(live.line_grid))
     write_json(date_root / "exact_pmf.json", frame_to_records(live.exact_pmf))
