@@ -115,7 +115,49 @@ def main() -> None:
     live.line_grid.to_csv(board_dir / "live_line_grid.csv", index=False)
     live.exact_pmf.to_csv(board_dir / "live_exact_pmf.csv", index=False)
 
-    live_card = live.candidate_bets.copy()
+    summary_for_merge = live.summary.copy()
+    keys = ["game_id", "pitcher_id", "pitcher_name"]
+    state_cols = [
+        "strikeouts_so_far",
+        "batters_faced_so_far",
+        "pitches_thrown_so_far",
+        "innings_completed",
+        "pitcher_active_flag",
+        "k_mean",
+        "market_mean",
+        "market_mean_shift",
+    ]
+    if not summary_for_merge.empty:
+        summary_for_merge = summary_for_merge[
+            keys + [c for c in state_cols if c in summary_for_merge.columns]
+        ].copy()
+
+    watchlist = live.candidate_bets.copy()
+    if not watchlist.empty and not summary_for_merge.empty:
+        watchlist = watchlist.merge(summary_for_merge, on=keys, how="left")
+        watchlist = watchlist.loc[
+            watchlist["pitcher_active_flag"].fillna(0).astype(int).eq(1)
+        ].copy()
+
+    production_card = watchlist.copy()
+    if not production_card.empty:
+        production_card = production_card.loc[
+            production_card["passes_strict_ev_gate"].astype(str).str.lower().isin(["true", "1", "yes"])
+            & production_card["action_tier"].astype(str).eq("BET")
+        ].copy()
+
+    sort_cols = [c for c in ["best_ev", "gate_conf_dist"] if c in production_card.columns]
+    if sort_cols and not production_card.empty:
+        production_card = production_card.sort_values(sort_cols, ascending=False).reset_index(drop=True)
+
+    sort_cols_watch = [c for c in ["best_ev", "gate_conf_dist"] if c in watchlist.columns]
+    if sort_cols_watch and not watchlist.empty:
+        watchlist = watchlist.sort_values(sort_cols_watch, ascending=False).reset_index(drop=True)
+
+    production_card.to_csv(board_dir / "live_production_card.csv", index=False)
+    watchlist.to_csv(board_dir / "live_watchlist.csv", index=False)
+
+    live_card = production_card.copy()
     if not live_card.empty:
         if "passes_strict_ev_gate" in live_card.columns:
             live_card = live_card.loc[
