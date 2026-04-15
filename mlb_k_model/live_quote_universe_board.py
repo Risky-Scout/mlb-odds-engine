@@ -238,6 +238,16 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
         fresh_cut = latest_snapshot_ts - pd.Timedelta(minutes=2)
         qg = qg.loc[qg["snapshot_ts"] >= fresh_cut].copy()
 
+        qg["quote_ts_key"] = qg["snapshot_ts"].map(lambda x: pd.Timestamp(x).isoformat())
+        qg = qg.loc[
+            qg["quote_ts_key"].map(lambda ts: (int(game_id), str(player_name_norm), ts) in live_state_lookup)
+        ].copy()
+        if qg.empty:
+            continue
+
+        latest_snapshot_ts = qg["snapshot_ts"].max()
+        qg = qg.loc[qg["snapshot_ts"].eq(latest_snapshot_ts)].copy()
+
         player_name = qg["player_name"].dropna().iloc[0] if qg["player_name"].notna().any() else None
         player_id = qg["player_id"].dropna().iloc[0] if qg["player_id"].notna().any() else np.nan
 
@@ -265,6 +275,8 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
         live_state = live_state_lookup.get(
             (int(game_id), str(player_name_norm), pd.Timestamp(latest_snapshot_ts).isoformat())
         )
+        if live_state is None:
+            continue
 
         pmf = condition_pmf_with_live_state(pmf, live_state)
 
