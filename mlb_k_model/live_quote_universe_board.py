@@ -12,6 +12,7 @@ import pandas as pd
 from mlb_k_model.data_pipeline import FeatureBuilder
 from mlb_k_model.external_data import merge_external_features
 from mlb_k_model.system import StrikeoutBettingSystem
+from mlb_k_model.live_game_state import build_live_state_lookup, condition_pmf_with_live_state
 from train_system import build_lineup_lookup
 
 
@@ -225,6 +226,15 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
 
     quotes["player_name_norm"] = quotes["player_name"].map(_norm)
 
+    live_state_lookup = build_live_state_lookup(
+        game_ids=quotes["game_id"].dropna().astype(int).unique().tolist(),
+        pitcher_ids=[
+            int(x) for x in pd.concat(
+                [quotes["player_id"].dropna(), start_states["pitcher_id"].dropna()]
+            ).astype(int).unique().tolist()
+        ],
+    )
+
     for (game_id, player_name_norm), qg in quotes.groupby(["game_id", "player_name_norm"], dropna=False):
         player_name = qg["player_name"].dropna().iloc[0] if qg["player_name"].notna().any() else None
         player_id = qg["player_id"].dropna().iloc[0] if qg["player_id"].notna().any() else np.nan
@@ -249,6 +259,14 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
 
         pmf = system.true_model.predict_pmf(state=state, future_lineup=future_lineup)
         pmf = _apply_saved_pmf_postcal(system, pmf)
+
+        live_state = None
+        if pd.notna(player_id):
+            live_state = live_state_lookup.get((int(game_id), int(player_id)))
+        if live_state is None:
+            live_state = live_state_lookup.get((int(game_id), int(state_rec["pitcher_id"])))
+
+        pmf = condition_pmf_with_live_state(pmf, live_state)
 
         ks = np.arange(len(pmf), dtype=float)
         k_mean = float(np.sum(ks * pmf))
@@ -311,6 +329,11 @@ def build_quote_universe_live_board(data_dir: str | Path, system_path: str | Pat
             "market_mean": market_mean,
             "market_mean_shift": float(market_mean - k_mean),
             "vendor_count": int(qg["vendor"].nunique()),
+            "strikeouts_so_far": int(live_state.strikeouts_so_far) if live_state is not None else None,
+            "batters_faced_so_far": int(live_state.batters_faced_so_far) if live_state is not None else None,
+            "pitches_thrown_so_far": int(live_state.pitches_thrown_so_far) if live_state is not None else None,
+            "innings_completed": float(live_state.innings_completed) if live_state is not None else None,
+            "pitcher_active_flag": int(live_state.pitcher_active_flag) if live_state is not None else None,
         })
 
         for r in qg.itertuples(index=False):
