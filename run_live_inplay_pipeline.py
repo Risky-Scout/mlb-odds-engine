@@ -4,6 +4,8 @@ import argparse
 import json
 from datetime import datetime, date
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pandas as pd
@@ -89,6 +91,18 @@ def main() -> None:
         )
         append_live_archive(data_dir, args.date, snap)
         print("Refreshed current pitcher strikeout snapshot rows:", len(snap))
+
+        subprocess.run(
+            [
+                sys.executable,
+                "capture_live_game_state_snapshots.py",
+                "--date",
+                args.date,
+                "--data-dir",
+                args.data_dir,
+            ],
+            check=True,
+        )
 
     live = build_quote_universe_live_board(
         data_dir=data_dir,
