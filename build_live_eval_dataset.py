@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import unicodedata
 from pathlib import Path
@@ -75,7 +74,6 @@ def main() -> None:
     s["home_team_norm"] = s["home_team"].map(_norm)
     s["away_team_norm"] = s["away_team"].map(_norm)
 
-    # Build quote game -> mlb_game_pk mapping from archived state only (no API call)
     state_games = s[["mlb_game_pk", "game_date", "home_team", "away_team", "home_team_norm", "away_team_norm"]].drop_duplicates().copy()
     quote_games = q[["game_id", "home_team", "away_team", "home_team_norm", "away_team_norm", "commence_time"]].drop_duplicates().copy()
 
@@ -98,21 +96,12 @@ def main() -> None:
     mapping = pd.DataFrame(map_rows).drop_duplicates()
     q = q.merge(mapping, on="game_id", how="left")
 
-    # Market implied probabilities
-    if "market_over_prob" not in q.columns:
-        q["market_over_prob_raw"] = q["over_odds"].map(american_to_prob)
-        q["market_under_prob_raw"] = q["under_odds"].map(american_to_prob)
-        denom = q["market_over_prob_raw"] + q["market_under_prob_raw"]
-        q["market_over_prob"] = q["market_over_prob_raw"] / denom
-        q["market_under_prob"] = q["market_under_prob_raw"] / denom
-    else:
-        q["market_over_prob_raw"] = q["over_odds"].map(american_to_prob)
-        q["market_under_prob_raw"] = q["under_odds"].map(american_to_prob)
-        if "market_under_prob" not in q.columns:
-            denom = q["market_over_prob_raw"] + q["market_under_prob_raw"]
-            q["market_under_prob"] = q["market_under_prob_raw"] / denom
+    q["market_over_prob_raw"] = q["over_odds"].map(american_to_prob)
+    q["market_under_prob_raw"] = q["under_odds"].map(american_to_prob)
+    denom = q["market_over_prob_raw"] + q["market_under_prob_raw"]
+    q["market_over_prob"] = q["market_over_prob_raw"] / denom
+    q["market_under_prob"] = q["market_under_prob_raw"] / denom
 
-    # Per-quote prior-state match using archived state only
     q = q.rename(columns={"player_name_norm": "pitcher_name_norm"}).copy()
 
     left = q.sort_values("snapshot_ts").copy()
@@ -129,10 +118,10 @@ def main() -> None:
         suffixes=("", "_state"),
     )
 
-    matched["has_valid_state"] = matched["capture_run_ts"].notna()
-    matched["state_lag_seconds"] = (matched["snapshot_ts"] - matched["capture_run_ts"]).dt.total_seconds()
+    state_ts_col = "capture_run_ts_state" if "capture_run_ts_state" in matched.columns else "capture_run_ts"
+    matched["has_valid_state"] = matched[state_ts_col].notna()
+    matched["state_lag_seconds"] = (matched["snapshot_ts"] - matched[state_ts_col]).dt.total_seconds()
 
-    # Final realized strikeouts from latest archived state
     final_k = (
         s.groupby(["mlb_game_pk", "pitcher_name_norm"], as_index=False)["strikeouts_so_far"]
         .max()
@@ -177,13 +166,13 @@ def main() -> None:
     if len(valid):
         show_cols = [c for c in [
             "game_id", "mlb_game_pk", "pitcher_name", "vendor", "line_value",
-            "snapshot_ts", "capture_run_ts", "state_lag_seconds",
+            "snapshot_ts", state_ts_col, "state_lag_seconds",
             "strikeouts_so_far", "batters_faced_so_far", "pitches_thrown_so_far",
             "innings_completed", "pitcher_active_flag",
             "final_strikeouts", "market_over_prob", "market_under_prob",
             "realized_over", "realized_under", "realized_push"
         ] if c in valid.columns]
-        print("\nSAMPLE VALID ROWS:")
+        print("\\nSAMPLE VALID ROWS:")
         print(valid[show_cols].head(20).to_string(index=False))
 
     if len(unmatched):
@@ -191,7 +180,7 @@ def main() -> None:
             "game_id", "pitcher_name", "vendor", "line_value",
             "snapshot_ts", "home_team", "away_team"
         ] if c in unmatched.columns]
-        print("\nSAMPLE UNMATCHED ROWS:")
+        print("\\nSAMPLE UNMATCHED ROWS:")
         print(unmatched[show_cols].head(20).to_string(index=False))
 
 
