@@ -110,3 +110,6 @@ def main() -> None:
         print(calibration_ready.head(20).to_string(index=False))
     else:
         print("\\nNo calibration-ready rows yet under current filters.")
+
+if __name__ == "__main__":
+    main()
