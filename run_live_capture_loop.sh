@@ -30,6 +30,8 @@ for ((i=1; i<=RUNS; i++)); do
     --predictions-dir Predictions \
     --refresh-board
 
+  python archive_live_board_run.py --date "$DATE_ARG"
+
   if [[ "$i" -lt "$RUNS" ]]; then
     echo "Sleeping ${INTERVAL_MIN} minutes..."
     sleep "$((INTERVAL_MIN * 60))"
