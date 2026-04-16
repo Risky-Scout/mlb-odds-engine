@@ -14,3 +14,4 @@ repo_*.txt
 repo_*.json
 Predictions/
 cache/
+artifacts/live_checkpoints/
